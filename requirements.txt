@@ -1,0 +1,14 @@
+# UI 与图像处理
+customtkinter
+Pillow
+mss
+pytesseract
+
+# 系统与外设交互
+psutil
+pynput
+
+# 网络与大模型通信
+websockets
+requests
+google-genai

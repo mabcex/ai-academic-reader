@@ -39,7 +39,18 @@ HTML_CONTENT = """<!DOCTYPE html>
         body { background-color: #0d1117; color: #c9d1d9; font-family: -apple-system, sans-serif; overflow: hidden; }
         .thinking-box { color: #8b949e; border-left: 4px solid #30363d; padding-left: 10px; margin-bottom: 20px; font-size: 0.95em; white-space: pre-wrap; }
         .content-box { font-size: 1.1em; line-height: 1.6; }
-        ::-webkit-scrollbar { width: 8px; }
+
+        /* 【核心修复】：为 Markdown 元素重新注入样式，对抗 Tailwind 的强行重置 */
+        .content-box table { width: 100%; border-collapse: collapse; margin: 1em 0; display: block; overflow-x: auto; white-space: nowrap; }
+        .content-box th, .content-box td { border: 1px solid #30363d; padding: 8px 16px; text-align: left; }
+        .content-box th { background-color: #161b22; font-weight: 600; color: #58a6ff; }
+        .content-box tr:nth-child(even) { background-color: rgba(255,255,255,0.02); }
+        .content-box ul { list-style-type: disc; padding-left: 2rem; margin-bottom: 1rem; }
+        .content-box ol { list-style-type: decimal; padding-left: 2rem; margin-bottom: 1rem; }
+        .content-box blockquote { border-left: 4px solid #3b82f6; padding-left: 1rem; margin: 1rem 0; color: #8b949e; background: rgba(59, 130, 246, 0.1); py-2; }
+        .content-box strong { color: #e6edf3; font-weight: 600; }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
     </style>
@@ -310,7 +321,6 @@ class App(ctk.CTk):
         self.is_hidden = False
         self.context_memory = deque(maxlen=5)
 
-        # 【新增状态】：用于 1 秒稳定确认算法
         self.last_img = None
         self.is_dirty = False
         self.stable_count = 0
@@ -321,11 +331,11 @@ class App(ctk.CTk):
 
         generate_and_open_html()
 
-        try:
-            self.hotkey_listener = keyboard.GlobalHotKeys({'<alt>+<space>': self.toggle_visibility})
-            self.hotkey_listener.start()
-        except:
-            pass
+        #try:
+        #    self.hotkey_listener = keyboard.GlobalHotKeys({'<alt>+<space>': self.toggle_visibility})
+        #    self.hotkey_listener.start()
+        #except:
+        #    pass
 
     def setup_ui(self):
         self.perf_label = ctk.CTkLabel(self, text="初始化...", font=("Arial", 10))
@@ -374,10 +384,9 @@ class App(ctk.CTk):
         self.monitor_btn.configure(text="⏸ 暂停监控", fg_color="#c92a2a")
         broadcast_to_web("clear", "")
 
-        # 每次重新开启监控，重置防抖状态
         self.last_img = None
-        self.is_dirty = True  # 初始默认为“需要更新”
-        self.stable_count = 2  # 初始将稳定值加满，确保第一页秒出
+        self.is_dirty = True
+        self.stable_count = 2
         self.last_text = ""
 
         threading.Thread(target=self.monitor_loop, daemon=True).start()
@@ -388,7 +397,6 @@ class App(ctk.CTk):
         return difflib.SequenceMatcher(None, text1, text2).ratio() > threshold
 
     def monitor_loop(self):
-        # 将监测间隔缩短为 0.5 秒，以满足 1 秒精准防抖的需求
         while self.is_monitoring:
             if self.is_processing:
                 time.sleep(0.5);
@@ -401,23 +409,19 @@ class App(ctk.CTk):
 
                     if self.last_img is not None:
                         diff = ImageChops.difference(img, self.last_img)
-                        # 如果图像差异 > 2.0，说明画面正在滚动中！
                         if sum(ImageStat.Stat(diff).mean) > 2.0:
                             self.is_dirty = True
-                            self.stable_count = 0  # 打断计时器，重新计时
+                            self.stable_count = 0
                         else:
-                            # 画面静止了，稳定计数器累加
                             if self.is_dirty:
                                 self.stable_count += 1
 
                     self.last_img = img
 
-                    # 【核心防抖触发器】：画面变动过，且已经完全静止超过 1 秒钟（连续 2 次 0.5s 静止）
                     if self.is_dirty and self.stable_count >= 2:
                         text = pytesseract.image_to_string(img, lang='eng').strip()
 
                         if len(text) > 20:
-                            # 确认文字确实大面积变了（过滤掉鼠标划过的干扰）
                             if not self.last_text or not self.is_text_similar(text, self.last_text):
                                 print("[监控] 画面已稳定 1 秒且确认翻页，触发翻译...")
                                 self.last_text = text
@@ -426,7 +430,6 @@ class App(ctk.CTk):
                             else:
                                 print("[监控] 画面稳定，但文字未发生实质变化（可能是鼠标干扰），忽略。")
 
-                        # 判定完毕后，清除“需要更新”标记，防止死循环翻译当前页
                         self.is_dirty = False
 
                 except Exception as e:
