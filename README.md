@@ -1,9 +1,11 @@
 # 🧠 AI 学术伴读引擎 (AI Academic Reader)
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
+![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)
 ![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-lightgrey.svg)
 ![Release](https://img.shields.io/badge/Release-v1.0.0-orange.svg)
+
+**嗨！这是一个我自己折腾出来的桌面端 AI 伴读小工具。**
 
 **一款专为硬核学术文献（论文、计算机教材）设计的桌面端 AI 沉浸式伴读工具。** 传统翻译软件在面对 PDF 论文中的复杂数学公式、多栏排版和代码块时往往会变成“乱码制造机”。本项目通过高容错的局部屏幕 OCR 捕获技术，结合大语言模型（DeepSeek / Qwen / Gemini），并在独立的极速 Web 渲染引擎中，为你提供**毫秒级排版、公式完美还原、无缝衔接**的流式翻译与上下文深度问答体验。
 
@@ -76,4 +78,16 @@ python main.py
 5.  **深度提问**：在 Python 控制台底部输入问题并回车，网页右侧会滑出问答抽屉提供详细解答。
 
 <!-- end list -->
+
+
+
+## 🤝 碎碎念 (一点心里话)
+
+做这个小工具最初只是为了解决自己看英文论文的痛点，顺便练练手。
+
+因为个人技术水平还在不断升级中，目前的版本肯定还有写得比较“菜”或者粗糙的地方 😅，也可能藏着一些我还没踩到的 Bug 🐛。
+
+**我有空也会不断更新和完善它的哈哈 🚀**
+
+如果大家在用的过程中遇到了什么问题，或者有什么好玩的改进想法，随时欢迎在 Issue 告诉我交流！要是路过的大佬愿意顺手提个 PR 帮我修修 Bug、改改错，那我简直感激不尽！
 
