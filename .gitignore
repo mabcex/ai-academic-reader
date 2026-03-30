@@ -10,3 +10,10 @@ __pycache__/
 
 # 忽略本地动态生成的网页（别人运行代码会自动生成的，不需要传）
 auto_reader.html
+
+# 忽略打包生成的软件、缓存和临时文件
+build/
+dist/
+*.spec
+*.pyc
+__pycache__/

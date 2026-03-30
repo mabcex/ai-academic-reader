@@ -319,7 +319,8 @@ class App(ctk.CTk):
         self.is_processing = False
         self.last_text = ""
         self.is_hidden = False
-        self.context_memory = deque(maxlen=5)
+        self.current_task_id = 0  # 当前翻译任务的唯一 ID
+        self.context_memory = deque(maxlen=40)
 
         self.last_img = None
         self.is_dirty = False
@@ -398,61 +399,75 @@ class App(ctk.CTk):
 
     def monitor_loop(self):
         while self.is_monitoring:
-            if self.is_processing:
-                time.sleep(0.5);
-                continue
-
             with mss.mss() as sct:
                 try:
                     sct_img = sct.grab(self.monitor_region)
                     img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
 
+                    gray_img = img.convert("L")
+                    bw_img = gray_img.point(lambda x: 255 if x > 128 else 0)
+
                     if self.last_img is not None:
-                        diff = ImageChops.difference(img, self.last_img)
-                        if sum(ImageStat.Stat(diff).mean) > 2.0:
+                        diff = ImageChops.difference(bw_img, self.last_img)
+                        if ImageStat.Stat(diff).mean[0] > 1.0:
                             self.is_dirty = True
                             self.stable_count = 0
                         else:
                             if self.is_dirty:
                                 self.stable_count += 1
 
-                    self.last_img = img
+                    self.last_img = bw_img
 
                     if self.is_dirty and self.stable_count >= 2:
-                        text = pytesseract.image_to_string(img, lang='eng').strip()
+                        text = pytesseract.image_to_string(gray_img, lang='eng').strip()
 
                         if len(text) > 20:
-                            if not self.last_text or not self.is_text_similar(text, self.last_text):
-                                print("[监控] 画面已稳定 1 秒且确认翻页，触发翻译...")
+                            if not self.last_text or not self.is_text_similar(text, self.last_text, threshold=0.85):
+                                print("\n[监控] 画面已稳定！强制中断旧翻译（如果有），极速启动新页面渲染...")
                                 self.last_text = text
                                 self.context_memory.append(text)
-                                self.start_cloud_translation(text)
+
+                                # === 【核心抢占逻辑】===
+                                # 生成新的任务 ID，旧线程发现 ID 不匹配就会直接自尽
+                                self.current_task_id += 1
+                                self.start_cloud_translation(text, self.current_task_id)
                             else:
-                                print("[监控] 画面稳定，但文字未发生实质变化（可能是鼠标干扰），忽略。")
+                                pass  # 画面变化但文本相似，忽略
 
                         self.is_dirty = False
 
                 except Exception as e:
-                    print(e)
+                    pass
 
             time.sleep(0.5)
 
-    def start_cloud_translation(self, text):
+    def start_cloud_translation(self, text, task_id):
         self.is_processing = True
         broadcast_to_web("clear", "")
 
         def run_task():
             try:
-                self.cloud_llm.translate_stream(text, self.stream_to_web, is_hardcore=self.hardcore_var.get())
-            except Exception as e:
-                print(e)
+                # 【修复核心】：将 t 改为 is_thinking，与引擎底层的参数命名严格对齐！
+                self.cloud_llm.translate_stream(
+                    text,
+                    lambda c, is_thinking=False: self.stream_to_web(c, is_thinking, task_id),
+                    is_hardcore=self.hardcore_var.get()
+                )
+            except Exception:
+                pass
             finally:
-                self.is_processing = False
-                broadcast_to_web("done", "")
+                # 只有当自己没有被新任务抢占时，才发送 done 信号
+                if self.current_task_id == task_id:
+                    self.is_processing = False
+                    broadcast_to_web("done", "")
 
         threading.Thread(target=run_task, daemon=True).start()
 
-    def stream_to_web(self, text_chunk, is_thinking=False):
+    def stream_to_web(self, text_chunk, is_thinking=False, task_id=None):
+        # 如果自己的 ID 已经过期，立刻抛出炸弹异常，让底层的 requests 停止下载数据！
+        if task_id is not None and task_id != self.current_task_id:
+            raise Exception("Aborted")
+
         broadcast_to_web("stream", text_chunk, is_thinking)
 
     def send_question(self, event=None):

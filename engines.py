@@ -35,19 +35,21 @@ class CloudLLM:
             ui_callback(f"\n[错误] 请先配置 {model_type} 的 API Key", is_thinking=False)
             return
 
+        # ==========================================
+        # 🟢 【翻译通道】严苛版的提示词 (解决排版和废话问题)
+        # ==========================================
         prompt = (
-            "你是一个专业的学术翻译专家。请将这段教材内容翻译成准确、专业的中文。\n"
-            "【排版格式最高指令】：\n"
-            "1. 所有的行内数学公式必须严格使用单个 $ 包裹（例如：$a=b$）。\n"
-            "2. 所有的独立数学公式必须严格使用双 $$ 包裹。\n"
-            "3. 绝对禁止使用 \\( \\) 或 \\[ \\] 来包裹公式，否则会导致系统崩溃！\n"
-            "4. 如果原文包含任何编程代码、终端命令（如 pip, python --version 等）或变量名，你必须使用 Markdown 的代码块（```）或行内代码（`）将其严格包裹起来。\n"
-            f"\n原文内容：\n{text}"
+            "你是一个专业的学术翻译专家。请将原文翻译成准确、通顺的中文。\n"
+            "【排版与输出最高指令（违背会导致系统崩溃）】：\n"
+            "1. 绝不闲聊：绝对不要输出“好的”、“以下是翻译”等任何开场白或解释。直接、且仅仅输出翻译结果！\n"
+            "2. 禁用代码块包裹：绝对不要使用 ```markdown 或 ``` 这样的代码块把整段翻译包裹起来！不要在段落首行使用空格缩进！\n"
+            "3. 公式格式：行内公式严格使用 $ 包裹（如 $x=1$），独立公式使用 $$ 包裹。绝不能用 \\( 或 \\[。\n"
+            "4. 结构清晰：保留原有的段落标题（如使用 ## 标题），保留列表等结构。\n\n"
+            f"【原文】：\n{text}"
         )
 
         try:
             if model_type in ["DeepSeek", "Qwen"]:
-                # 【防篡改终极碎渣拼接法】：彻底击败智能复制
                 if model_type == "DeepSeek":
                     base_url = "https://" + "api" + ".deep" + "seek.com" + "/chat/completions"
                     model_name = "deepseek-reasoner" if is_hardcore else "deepseek-chat"
@@ -65,15 +67,9 @@ class CloudLLM:
                     "stream": True
                 }
 
-                # 强行绕过所有 VPN 和证书
                 response = requests.post(
-                    base_url,
-                    headers=headers,
-                    json=data,
-                    stream=True,
-                    verify=False,
-                    proxies={"http": "", "https": ""},
-                    timeout=20  # 流式请求首字节超时时间
+                    base_url, headers=headers, json=data, stream=True,
+                    verify=False, proxies={"http": "", "https": ""}, timeout=20
                 )
 
                 if response.status_code != 200:
@@ -95,13 +91,29 @@ class CloudLLM:
                                     ui_callback(delta["reasoning_content"], is_thinking=True)
                                 if "content" in delta and delta["content"]:
                                     ui_callback(delta["content"], is_thinking=False)
-                            except json.JSONDecodeError:
-                                pass
+                            # === 【核心防阻塞机制】接收到打断信号，暴力掐断 TCP 连接 ===
+                            except Exception as e:
+                                if str(e) == "Aborted":
+                                    response.close()
+                                    return
+                                else:
+                                    raise e
 
             elif model_type == "Gemini":
                 client = genai.Client(api_key=api_key, http_options={'verify': False})
                 for chunk in client.models.generate_content_stream(model='gemini-1.5-pro', contents=prompt):
-                    if chunk.text: ui_callback(chunk.text, is_thinking=False)
+                    if chunk.text:
+                        try:
+                            ui_callback(chunk.text, is_thinking=False)
+                        except Exception as e:
+                            if str(e) == "Aborted": return
+
+        except Exception as e:
+            if str(e) != "Aborted":
+                print("\n" + "=" * 40)
+                traceback.print_exc()
+                print("=" * 40 + "\n")
+                ui_callback(f"\n[网络异常] {type(e).__name__}，请检查终端日志。", is_thinking=False)
 
         except Exception as e:
             print("\n" + "=" * 40)
@@ -113,18 +125,27 @@ class CloudLLM:
         model_type = self.config.get("active_model", "DeepSeek")
         keys = self.config.get("api_keys", {})
         api_key = keys.get(model_type, "")
+
+        # 将记忆列表拼接成长文本
         full_context = "\n\n---历史阅读内容---\n\n".join(context_history)
 
+        # ==========================================
+        # 🔵 这里是【问答通道】专属的学术导师（费曼技巧）提示词
+        # ==========================================
         prompt = (
-            "你是一个严谨的学术导师。请根据提供的阅读上下文，详细解答学生的问题。\n"
-            "【排版格式最高指令】：行内公式严格使用 $ 包裹，独立公式严格使用 $$ 包裹。包含代码时必须使用 Markdown 代码块。\n\n"
-            f"【近期阅读上下文】：\n{full_context}\n\n"
-            f"【学生的问题】：{question}\n请解答："
+            "你是一个顶级的资深架构师和学术导师，你的任务是解答学生的疑问，帮助其向专业领域进阶。\n"
+            "【回答风格与约束（最高指令）】：\n"
+            "1. 直奔主题：拒绝“好的，我来为您解答”等废话，直接给出核心结论。\n"
+            "2. 专业与通俗的完美平衡：必须保留并使用原文献中的核心专业术语、英文缩写和数学符号，以帮助学生建立严谨的专业认知。但在首次引入或解释关键术语时，必须紧跟一句通俗易懂的简短解释或日常开发中的类比。\n"
+            "3. 结构化输出：必须使用多级列表（Markdown）来组织内容，采用“核心结论 -> 专业原理解析（辅以通俗解释） -> 实例或推导”的逻辑链条。\n"
+            "4. 格式要求：行内公式严格使用 $ 包裹，独立公式严格使用 $$ 包裹。包含代码时必须使用 Markdown 代码块。\n\n"
+            f"【这是学生刚阅读过的近期上下文（仅供参考）】：\n{full_context}\n\n"
+            f"【学生的问题】：{question}\n"
+            "请直接输出解答，不要带任何开场白："
         )
 
         try:
             if model_type in ["DeepSeek", "Qwen"]:
-                # 【防篡改终极碎渣拼接法】
                 if model_type == "DeepSeek":
                     base_url = "https://" + "api" + ".deep" + "seek.com" + "/chat/completions"
                     model_name = "deepseek-chat"
@@ -142,7 +163,7 @@ class CloudLLM:
                     "stream": False
                 }
 
-                # 【修复核心】：将超时时间延长到 120 秒，给 AI 充分的阅读 5 页上下文和思考的时间
+                # 将超时时间延长到 120 秒，给 AI 充分的阅读长上下文和思考的时间
                 response = requests.post(
                     base_url,
                     headers=headers,
